@@ -650,7 +650,7 @@ function kpiSet(month) {
     collected: sum(sv, 'collected'), uncollected: sum(sv, 'outstanding'),
     rating: avg(cs, 'rating'), wait: avg(cs, 'wait'),
     complaintsOpen: coOpen.length, complaintsOverdue: coOpen.filter(r => r.followUp === 'Overdue').length,
-    noDoc: sum(noDoc, 'amount'), noDocCount: noDoc.length,
+    noDoc: sum(noDoc, 'amount'), noDocCount: noDoc.length, noDocUnchecked: ex.filter(r => !r.hasDocument).length,
     policy: avg(cp, 'pct'), policyCount: cp.length
   };
 }
@@ -663,7 +663,7 @@ function deltaHTML(cur, prev, goodWhenUp) {
 }
 
 function kpiCard(o) {
-  return `<div class="kpi ${o.go !== undefined ? 'click' : ''}" ${o.go !== undefined ? `data-issues="${o.go}" title="Show these problems"` : ''} style="--c:${o.c};--cs:${o.cs}">
+  return `<div class="kpi ${o.go !== undefined ? 'click' : ''}" ${o.go !== undefined ? `data-issues="${o.go}" ${o.risk ? `data-risk="${o.risk}"` : ''} ${o.match ? `data-match="${o.match}" data-match-label="${esc(o.matchLabel || '')}"` : ''} title="Show these problems"` : ''} style="--c:${o.c};--cs:${o.cs}">
     <div class="top"><span class="ic">${icon(o.ic)}</span><span class="lbl">${o.label}</span></div>
     <div class="val num">${o.value}</div>
     <div class="foot">${o.foot || ''}</div></div>`;
@@ -793,7 +793,7 @@ function drawDashboard() {
   const row1 = [
     { label: 'Total Findings', value: fmt(k.findings), ic: 'alert', c: 'var(--navy)', cs: 'var(--blue-soft)', foot: deltaHTML(k.findings, p.findings, false) || `${fmt(k.closed)} closed · ${pctTxt(pctOf(k.closed, k.findings))} closure` },
     { go: 'findings', label: 'Open Findings', value: fmt(k.open), ic: 'alert', c: 'var(--red)', cs: 'var(--red-soft)', foot: `<span class="${k.overdue ? 'delta bad' : ''}">${fmt(k.overdue)} overdue</span>` },
-    { go: 'findings', label: 'Critical Findings (open)', value: fmt(k.critical), ic: 'shield', c: '#b42318', cs: 'var(--red-soft)', foot: `${fmt(k.high)} high` },
+    { go: 'findings', risk: 'Critical', label: 'Critical Findings (open)', value: fmt(k.critical), ic: 'shield', c: '#b42318', cs: 'var(--red-soft)', foot: `${fmt(k.high)} high` },
     { label: 'Actual Financial Impact', value: money(k.impact), ic: 'money', c: 'var(--purple)', cs: 'var(--purple-soft)', foot: `Potential: <span class="num">${money(k.potential)}</span> EGP` },
     { label: 'Audit Program Completion', value: pctTxt(pctOf(k.executed, k.progTotal)), ic: 'list', c: 'var(--teal)', cs: 'var(--teal-soft)', foot: `${fmt(k.executed)} of ${fmt(k.progTotal)} procedures` },
     { label: 'Program Compliance Rate', value: pctTxt(pctOf(k.compliant, k.executed)), ic: 'check', c: 'var(--green)', cs: 'var(--green-soft)', foot: `${fmt(k.executed - k.compliant)} non-compliant` }
@@ -801,7 +801,7 @@ function drawDashboard() {
   const row2 = [
     { go: '', label: 'Control Analytics Alerts', value: fmt(alerts), ic: 'pulse', c: alerts ? 'var(--red)' : 'var(--green)', cs: alerts ? 'var(--red-soft)' : 'var(--green-soft)', foot: `of ${tested} automatic tests with data` },
     { label: 'Total Collections', value: money(k.collected), ic: 'cash', c: 'var(--navy)', cs: 'var(--blue-soft)', foot: deltaHTML(k.collected, p.collected, true) || `Uncollected: <span class="num">${money(k.uncollected)}</span>` },
-    { go: 'expenses', label: 'Payments Without Documents', value: money(k.noDoc), ic: 'doc', c: 'var(--blue)', cs: 'var(--blue-soft)', foot: `${fmt(k.noDocCount)} vouchers` },
+    { go: 'expenses', match: 'no supporting document|incomplete documents', matchLabel: 'vouchers with missing or incomplete supporting documents', label: 'Payments Without Documents', value: money(k.noDoc), ic: 'doc', c: 'var(--blue)', cs: 'var(--blue-soft)', foot: `${fmt(k.noDocCount)} vouchers` + (k.noDocUnchecked ? ` · <span class="delta bad">${fmt(k.noDocUnchecked)} not checked yet</span>` : '') },
     { label: 'Patient Satisfaction', value: k.rating === null ? '—' : k.rating.toFixed(1) + '<small style="font-size:14px;color:var(--muted)"> / 5</small>', ic: 'smile', c: 'var(--amber)', cs: 'var(--amber-soft)', foot: k.wait === null ? 'No survey data' : `Avg wait ${k.wait.toFixed(0)} min` },
     { go: 'complaints', label: 'Open Complaints & Issues', value: fmt(k.complaintsOpen), ic: 'chat', c: 'var(--red)', cs: 'var(--red-soft)', foot: `${fmt(k.complaintsOverdue)} overdue` },
     { label: 'Policy Compliance', value: pctTxt(k.policy), ic: 'shield', c: 'var(--green)', cs: 'var(--green-soft)', foot: `Across ${fmt(k.policyCount)} audit items` }
@@ -839,7 +839,7 @@ function drawDashboard() {
   drawTypes(hasChart); drawRiskMap(); drawDomains(hasChart); drawAlerts();
   drawBars(hasChart); drawTrend(hasChart); drawPatients(); drawRecs(); drawPlan(hasChart); drawNotes();
   $('#main').onclick = e => {
-    const t = e.target.closest('[data-issues]'); if (t) return openIssues({ module: t.dataset.issues || '' });
+    const t = e.target.closest('[data-issues]'); if (t) return openIssues({ module: t.dataset.issues || '', risk: t.dataset.risk || '', match: t.dataset.match || '', matchLabel: t.dataset.matchLabel || '' });
     const d = e.target.closest('[data-rec]'); if (d) { const [k, id] = d.dataset.rec.split('|'); const r = (S.dashData[k] || []).find(x => x.id === id); if (r) showRecord(k, r); }
   };
 }
@@ -1104,6 +1104,7 @@ function collectIssues() {
     else if (m.key === 'compliance') { if (r.complianceStatus === 'Fully Applied' || r.progress === 'Completed') return; reason = `${r.complianceStatus} (${fmt(r.pct)}%)`; level = levelOf(r.risk); status = r.progress; }
     else if (m.key === 'framework') { if (!['Not implemented', 'Partially implemented'].includes(r.design)) return; reason = 'Control ' + String(r.design).toLowerCase(); status = r.design; }
     else if (m.key === 'risk') { return; }
+    else if (m.key === 'expenses' && !r.hasDocument) { reason = 'supporting document not checked yet' + (ind.startsWith('Needs review') ? '; ' + ind.replace(/^Needs review:\s*/, '') : ''); level = ind.startsWith('Needs review') ? 'Medium' : 'Low'; status = 'Not checked'; }
     else if (ind.startsWith('Needs review')) { reason = ind.replace(/^Needs review:\s*/, ''); status = 'Needs review'; }
     else return;
     if (status === 'Overdue') level = 'High';
@@ -1114,7 +1115,7 @@ function collectIssues() {
 }
 
 function openIssues(f = {}) {
-  S.issueFilter = Object.assign({ module: '', branch: S.filters.branch || '', level: '', q: '' }, f);
+  S.issueFilter = Object.assign({ module: '', branch: S.filters.branch || '', level: '', risk: '', match: '', matchLabel: '', q: '' }, f);
   S.view = 'issues'; renderNav(); render(); window.scrollTo(0, 0);
 }
 
@@ -1126,13 +1127,13 @@ async function renderIssues() {
     try { await loadDash(); } catch (e) { main.innerHTML = head + `<div class="err">${esc(e.message)}</div>`; return; }
     if (S.view !== 'issues') return;
   }
-  const F = S.issueFilter = S.issueFilter || { module: '', branch: S.filters.branch || '', level: '', q: '' };
+  const F = S.issueFilter = S.issueFilter || { module: '', branch: S.filters.branch || '', level: '', risk: '', q: '' };
   const all = collectIssues();
   S.issueCount = all.length;
   const byBranch = all.filter(i => !F.branch || !i.m.branchKey || i.branch === F.branch);
   const counts = {}; byBranch.forEach(i => counts[i.key] = (counts[i.key] || 0) + 1);
   const q = F.q.trim().toLowerCase();
-  const list = byBranch.filter(i => (!F.module || i.key === F.module) && (!F.level || i.level === F.level) && (!q || (i.title + ' ' + i.reason + ' ' + i.id + ' ' + i.branch).toLowerCase().includes(q)));
+  const list = byBranch.filter(i => (!F.module || i.key === F.module) && (!F.level || i.level === F.level) && (!F.risk || i.r.risk === F.risk) && (!F.match || F.match.split('|').some(x => i.reason.toLowerCase().includes(x))) && (!q || (i.title + ' ' + i.reason + ' ' + i.id + ' ' + i.branch).toLowerCase().includes(q)));
   const lvl = l => `<span class="pill ${{ High: 'p-red', Medium: 'p-amber', Low: 'p-green' }[l]}">${l}</span>`;
   const sections = S.modules.filter(m => counts[m.key]);
   main.innerHTML = head + `
@@ -1146,6 +1147,7 @@ async function renderIssues() {
       <select id="iLevel" aria-label="Priority"><option value="">All priorities</option>${LEVELS.map(l => `<option ${l === F.level ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <input id="iQ" type="search" placeholder="Search problems…" value="${esc(F.q)}" aria-label="Search">
     </div>
+    ${F.risk || F.match ? `<div class="callout blue" style="display:flex;align-items:center;gap:10px">Showing only ${F.risk ? `<b>${esc(F.risk)}</b> risk items` : `<b>${esc(F.matchLabel || F.match)}</b>`} (${list.length}).<button class="linkbtn" id="iClearRisk" style="margin-inline-start:auto">Show all</button></div>` : ''}
     <div class="panel list-panel" style="padding:0">
     ${list.length ? `<div class="cards mobile-only">${list.map((i, n) => `<button class="rcard" data-i="${n}">
         <div class="rc-top"><span class="sec-tag">${icon(i.m.icon, 14)} ${esc(i.m.title)}</span>${lvl(i.level)}</div>
@@ -1154,11 +1156,13 @@ async function renderIssues() {
       <div class="tbl-wrap desk-only"><table><thead><tr><th>Priority</th><th>Section</th><th>ID</th><th>Problem</th><th>Branch</th><th>Date</th></tr></thead><tbody>
       ${list.map((i, n) => `<tr class="click" data-i="${n}" tabindex="0"><td>${lvl(i.level)}</td><td style="white-space:nowrap">${esc(i.m.title)}<div class="meta-line" style="margin:0">${esc(i.m.group || '')}</div></td><td class="num" style="white-space:nowrap"><b>${esc(i.id)}</b></td>
         <td><div class="iss-title clip" style="max-width:420px" dir="auto" title="${esc(i.title)}">${esc(i.title)}</div><div class="iss-reason">${esc(i.reason)}</div></td><td dir="auto">${esc(i.branch || '—')}</td><td class="num">${dmy(i.date)}</td></tr>`).join('')}
-      </tbody></table></div>` : `<div class="empty" style="padding:48px">${all.length ? 'No problems match these filters.' : 'No problems found in approved records. 🎉'}</div>`}
+      </tbody></table></div>` : `<div class="empty" style="padding:48px">${F.match && !list.length ? `No ${esc(F.matchLabel || 'matching items')} in approved records.${counts[F.module] ? ` <button class="linkbtn" id="iShowSec">Show all ${counts[F.module]} problems in ${esc((mod(F.module) || {}).title || '')}</button>` : ''}` : all.length ? 'No problems match these filters.' : 'No problems found in approved records. 🎉'}</div>`}
     </div>`;
   const re = () => renderIssues();
-  main.querySelectorAll('[data-mod]').forEach(b => b.onclick = () => { F.module = b.dataset.mod; re(); });
+  main.querySelectorAll('[data-mod]').forEach(b => b.onclick = () => { F.module = b.dataset.mod; F.risk = ''; F.match = ''; re(); });
   $('#iMod').onchange = e => { F.module = e.target.value; re(); };
+  if ($('#iClearRisk')) $('#iClearRisk').onclick = () => { F.risk = ''; F.match = ''; re(); };
+  if ($('#iShowSec')) $('#iShowSec').onclick = () => { F.risk = ''; F.match = ''; re(); };
   $('#iBranch').onchange = e => { F.branch = e.target.value; re(); };
   $('#iLevel').onchange = e => { F.level = e.target.value; re(); };
   let t; $('#iQ').oninput = e => { clearTimeout(t); t = setTimeout(() => { F.q = e.target.value; re(); setTimeout(() => { const i = $('#iQ'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 300); };
@@ -1244,7 +1248,7 @@ async function renderModule(key, force) {
     </div>
     <div class="panel list-panel" style="padding:0">
       ${data.length ? recordCards(data, (() => { const ind = listFields.filter(f => ['flag', 'check', 'followUp'].includes(f.key)); return listFields.filter(f => !ind.includes(f)).slice(0, 4 - ind.length).concat(ind); })(), r => `data-id="${esc(r.id)}"`) + `<div class="tbl-wrap desk-only"><table><thead><tr><th>ID</th>${listFields.map(f => `<th>${esc(f.label)}</th>`).join('')}<th>Approval</th><th>Updated</th></tr></thead><tbody>
-      ${data.map(r => `<tr class="click" data-id="${esc(r.id)}" tabindex="0"><td class="num"><b>${esc(r.id)}</b></td>${listFields.map(f => `<td>${cellValue(f, r[f.key])}</td>`).join('')}<td>${statusPill(r.status)}</td><td class="num" style="white-space:nowrap">${esc(r.updatedAt)}</td></tr>`).join('')}
+      ${data.map(r => `<tr class="click" data-id="${esc(r.id)}" tabindex="0"><td class="num" style="white-space:nowrap"><b>${esc(r.id)}</b></td>${listFields.map(f => `<td>${cellValue(f, r[f.key])}</td>`).join('')}<td>${statusPill(r.status)}</td><td class="num" style="white-space:nowrap">${esc(r.updatedAt)}</td></tr>`).join('')}
       </tbody></table></div>` : `<div class="empty" style="padding:48px">${S.lists[key].length ? 'No records match your search.' : 'No records yet. Tap “+” or “New record” to add the first one.'}</div>`}
     </div>`;
   if ($('#addBtn')) $('#addBtn').onclick = () => openForm(key, null);
